@@ -130,8 +130,7 @@ class Grid(object):
                 return False
 
         grid_index = self._grid_index(coord.get_coords())
-        grid = self._grids[grid_index]
-        grid.insert(coord, uid)
+        self._grids[grid_index].insert(coord, uid)
         return True
 
     def _grid_index(self, coord):
