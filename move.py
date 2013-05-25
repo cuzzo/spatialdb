@@ -3,6 +3,7 @@
 from __future__ import division
 
 import math
+import sys
 
 import os
 import random
@@ -86,13 +87,111 @@ class Axis(object):
 
 # Reduce
 class Grid(object):
+    max_items = 1000
+    min_size = 100000
+
     def __init__(self, coord, vector):
+        self._items = {}
+        self._grids = {}
         self._x_axis = Axis()
         self._y_axis = Axis()
         self._cx, self._cy = coord
         self._width, self._height = vector
 
+    def _divide(self):
+        if self._width <= self.min_size or self._height <= self.min_size:
+            return False
+
+        qw = self._width / 4
+        qh = self._height / 4
+        hw = self._width / 2
+        hh = self._height / 2
+
+        self._grids[0] = Grid((self._cx - qw, self._cy - qh), (hw, hh))
+        self._grids[1] = Grid((self._cx + qw, self._cy - qh), (hw, hh))
+        self._grids[2] = Grid((self._cx - qw, self._cy + qh), (hw, hh))
+        self._grids[3] = Grid((self._cx + qw, self._cy + qh), (hw, hh))
+
+        self._spill()
+
+        return True
+
+    def _spill(self):
+        for uid, coord in self._items.iteritems():
+            self._insert_into_child(coord, uid)
+        self._items = {}
+        self._x_axis = Axis()
+        self._y_axis = Axis()
+
+    def _insert_into_child(self, coord, uid):
+        if len(self._grids) is 0:
+            success = self._divide()
+            if not success:
+                return False
+
+        grid_index = self._grid_index(coord.get_coords())
+        grid = self._grids[grid_index]
+        grid.insert(coord, uid)
+        return True
+
+    def _grid_index(self, coord):
+        x, y = coord
+        grid_index = 0
+        if x < self._cx:
+            if y < self._cy:
+                return 0
+            else:
+                return 2
+        else:
+            if y < self._cy:
+                return 1
+            else:
+                return 3
+
+    def _grids_in(self, top_left_index, bottom_right_index):
+        if top_left_index is bottom_right_index:
+            return [top_left_index]
+
+        if top_left_index is 0:
+            if bottom_right_index is 1:
+                return [0, 1]
+            elif bottom_right_index is 2:
+                return [0, 2]
+            elif bottom_right_index is 3:
+                return [0, 1, 2, 3]
+        elif top_left_index is 1:
+            if bottom_right_index is 3:
+                return [1, 3]
+        elif top_left_index is 2:
+            if bottom_right_index is 3:
+                return [2, 3]
+
+    def _query_from_children(self, coord, vector):
+        items = []
+
+        width, height = vector
+        width = width // 2
+        height = height // 2
+
+        cx, cy = coord
+        top_left = (cx - width, cy - height)
+        bottom_right = (cx + width, cy + height)
+
+        top_left_grid_index = self._grid_index(top_left)
+        bottom_right_grid_index = self._grid_index(bottom_right)
+        grids = self._grids_in(top_left_grid_index, bottom_right_grid_index)
+
+        for index in grids:
+            items.extend(self._grids[index].query(coord, vector))
+        return items
+
     def insert(self, coord, uid):
+        if len(self._grids) > 0 or len(self._items) >= self.max_items:
+            success = self._insert_into_child(coord, uid)
+            if success:
+                return
+
+        self._items[coord._uid] = coord
         x, y = coord.get_coords()
         self._x_axis.insert(x, coord._uid)
         self._y_axis.insert(y, coord._uid)
@@ -106,6 +205,9 @@ class Grid(object):
         pass
 
     def query(self, coord, vector):
+        if len(self._grids) > 0:
+            return self._query_from_children(coord, vector)
+
         width, height = vector
         width = width // 2
         height = height // 2
@@ -125,8 +227,12 @@ class Grid(object):
         return x_set.intersection(y_items)
 
     def sort(self):
-        self._x_axis.sort()
-        self._y_axis.sort()
+        if len(self._grids) > 0:
+            for gid, grid in self._grids.iteritems():
+                grid.sort()
+        else:
+            self._x_axis.sort()
+            self._y_axis.sort()
 
 
 # Map
@@ -142,10 +248,10 @@ class SpatialDB(object):
         clean() function to inspect the edges of a grid for items that
         belong elsewhere.
     '''
-    def __init__(self):
+    def __init__(self, vector=(sys.maxint, sys.maxint)):
         self._uid = 0
         self._coords = {}
-        self._grid = Grid((0, 0), (0, 0))
+        self._grid = Grid((0, 0), vector)
 
     ''' TODO: pass in a generated coord, return uid.'''
     def _generate_coord(self, coord):
